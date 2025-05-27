@@ -15,7 +15,7 @@ LANGUAGE_MAP = {
     "ja-JP": "/content/lifetech/japan/en-jp",
     "ko-KR": "/content/lifetech/ipac/en-kr",
     "zh-CN": "/content/lifetech/greater-china/en-cn",
-    "zh-TW": "/content/lifetech/greater-china/en-hk",
+    "zh-TW": "/content/lifetech/ipac/en-tw",
     "pt-BR": "/content/lifetech/latin-america/en-br",
     "es-LATAM": "/content/lifetech/latin-america/en-mx"
 }
@@ -38,7 +38,8 @@ def detect_first_url(row):
     return None
 
 def process_file(file):
-    df = pd.read_excel(file, sheet_name=0, header=3)
+    # Use header=2 to handle files like 'workfront_request_web translation_250522Hosoiri.xlsx'
+    df = pd.read_excel(file, sheet_name=0, header=2)
     results = []
     language_columns = {col: code for code, path in LANGUAGE_MAP.items() for col in df.columns if code in str(col)}
 
@@ -50,7 +51,7 @@ def process_file(file):
 
         for col_name, lang_code in language_columns.items():
             cell_value = row.get(col_name, "")
-            if pd.notna(cell_value) and str(cell_value).strip().lower() not in ["", "no"]:
+            if pd.notna(cell_value) and str(cell_value).strip().lower() in ["x", "yes", "✓", "✔"]:
                 localized_base = LANGUAGE_MAP.get(lang_code)
                 if localized_base:
                     results.append({
