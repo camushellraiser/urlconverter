@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse
@@ -37,11 +36,30 @@ def detect_first_url(row):
             return cell
     return None
 
+def detect_header_row(df):
+    for i, row in df.iterrows():
+        row_str = row.astype(str).str.lower()
+        if any("page title" in cell for cell in row_str) and any("url in aem" in cell for cell in row_str):
+            return i
+    return 0  # fallback
+
+def normalize_lang_column(colname):
+    match = re.match(r'([a-z]{2}-[A-Z]{2})', str(colname))
+    return match.group(1) if match else None
+
 def process_file(file):
-    # Use header=2 to handle files like 'workfront_request_web translation_250522Hosoiri.xlsx'
-    df = pd.read_excel(file, sheet_name=0, header=2)
+    df_preview = pd.read_excel(file, sheet_name=0, header=None)
+    header_row = detect_header_row(df_preview)
+    df = pd.read_excel(file, sheet_name=0, header=header_row)
+
+    df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
+
     results = []
-    language_columns = {col: code for code, path in LANGUAGE_MAP.items() for col in df.columns if code in str(col)}
+    language_columns = {}
+    for col in df.columns:
+        code = normalize_lang_column(col)
+        if code in LANGUAGE_MAP:
+            language_columns[col] = code
 
     for _, row in df.iterrows():
         original_url = detect_first_url(row)
@@ -83,6 +101,7 @@ def style_and_save_excel(df):
     return output
 
 st.title("🌐 URL Converter Web App")
+
 uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
 
 if uploaded_file:
