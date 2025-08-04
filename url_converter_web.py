@@ -182,7 +182,7 @@ def main():
         zip_buf.seek(0)
         zip_name = f"{project_code} - All Downloads.zip"
         # center the Download All button
-        col1, col2, col3 = st.columns([1,2,1])
+        col1, col2, col3 = st.columns([1,1,1])
         with col2:
             st.download_button(
                 label="📥 Download All",
