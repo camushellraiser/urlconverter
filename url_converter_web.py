@@ -8,7 +8,8 @@ from openpyxl import load_workbook
 import zipfile
 
 # Default project code for naming
-DEFAULT_PROJECT_CODE = "GTS2500XX"
+def get_default_project_code():
+    return "GTS2500XX"
 
 # Mapping from locale to region path
 LANGUAGE_MAP = {
@@ -23,7 +24,7 @@ LANGUAGE_MAP = {
     "es-LATAM": "/content/lifetech/latin-america/en-mx"
 }
 
-# --- Functions for Original URL Conversion ---
+# --- Original URL Conversion Functions ---
 
 def clean_url(url):
     if not isinstance(url, str):
@@ -56,13 +57,13 @@ def process_file_original(file):
     df = pd.read_excel(file, sheet_name=0, header=header_row)
     df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-    results = []
     language_columns = {
         col: normalize_lang_column(col)
         for col in df.columns
         if normalize_lang_column(col) in LANGUAGE_MAP
     }
 
+    results = []
     for _, row in df.iterrows():
         url = next((cell for cell in row if isinstance(cell, str) and "/home/" in cell), None)
         cleaned = clean_url(url)
@@ -101,50 +102,37 @@ def style_and_save_excel(df):
 # --- Product Inclusion List Functions (A### pattern) ---
 
 def process_file_product(file):
-    # Detect the sheet name for product data
     xls = pd.ExcelFile(file)
-    if 'Product' in xls.sheet_names:
-        sheet = 'Product'
-    elif len(xls.sheet_names) > 1:
-        sheet = xls.sheet_names[1]
-    else:
+    # choose second sheet or named Product
+    sheet = 'Product' if 'Product' in xls.sheet_names else (xls.sheet_names[1] if len(xls.sheet_names)>1 else None)
+    if not sheet:
         return pd.DataFrame()
-    # Header row is the third row (index 2)
     df = pd.read_excel(file, sheet_name=sheet, header=2)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Identify language columns by header code
+    # language flag columns
     langs = {
         col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
         for col in df.columns
-        if re.match(r'([a-z]{2}-[A-Z]{2})', col)
-           and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
+        if re.match(r'([a-z]{2}-[A-Z]{2})', col) and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
     }
 
     results = []
     for _, row in df.iterrows():
         pid = None
-        # First, look for standalone code cell (A followed by 3-6 digits)
+        # universal scan for A### pattern
         for cell in row:
-            if isinstance(cell, str) and re.fullmatch(r'A\d{3,6}', cell.strip()):
-                pid = cell.strip()
-                break
-        # If not found, look for '/product/' URL
-        if not pid:
-            url_cell = next((cell for cell in row if isinstance(cell, str) and '/product/' in cell), None)
-            if url_cell:
-                m = re.search(r'A\d{3,6}', url_cell)
+            if isinstance(cell, str):
+                m = re.search(r'A\d{3,6}', cell)
                 if m:
                     pid = m.group(0)
+                    break
         if not pid:
             continue
-
-        # Check language markers
         for col, lang in langs.items():
             val = row.get(col, '')
             if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
                 results.append({'Product ID': pid, 'Language': lang})
-
     return pd.DataFrame(results)
 
 
@@ -156,15 +144,18 @@ def make_excel_buffer(df):
     return buf
 
 # --- Streamlit UI ---
-st.title("🌐 URL Converter Web App")
 
-# GTS ID input for dynamic naming
-gts_id = st.text_input("GTS ID", value=DEFAULT_PROJECT_CODE)
-project_code = gts_id.strip() if gts_id.strip() else DEFAULT_PROJECT_CODE
+def main():
+    st.title("🌐 URL Converter Web App")
+    default_code = get_default_project_code()
+    gts_id = st.text_input("GTS ID", value=default_code)
+    project_code = gts_id.strip() if gts_id.strip() else default_code
 
-uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
-if uploaded_file:
-    # Original URL conversion
+    uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
+    if not uploaded_file:
+        return
+
+    # original URLs
     df_orig = process_file_original(uploaded_file)
     if df_orig.empty:
         st.warning("No valid data found in the file.")
@@ -172,13 +163,9 @@ if uploaded_file:
         st.success("✅ File processed successfully.")
         st.dataframe(df_orig)
         filename = f"{project_code} - Converted URLs.xlsx"
-        st.download_button(
-            label="📥 Download Excel",
-            data=style_and_save_excel(df_orig),
-            file_name=filename
-        )
+        st.download_button("📥 Download Excel", data=style_and_save_excel(df_orig), file_name=filename)
 
-    # Product Inclusion List section
+    # product list
     df_prod = process_file_product(uploaded_file)
     if not df_prod.empty:
         st.header("Product Inclusion List")
@@ -189,24 +176,18 @@ if uploaded_file:
             st.table(df_lang)
             buf = make_excel_buffer(df_lang)
             st.download_button(
-                label="Download Inclusion List",
-                data=buf,
+                "Download Inclusion List",
+                buf,
                 file_name=f"Product Inclusion List_{project_code}_{lang}.xlsx",
                 key=f"dl_{lang}"
             )
             buffers[lang] = buf.getvalue()
-        # Download all as ZIP
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
-            for lang, data in buffers.items():
-                zf.writestr(
-                    f"Product Inclusion List_{project_code}_{lang}.xlsx",
-                    data
-                )
+            for lang,data in buffers.items():
+                zf.writestr(f"Product Inclusion List_{project_code}_{lang}.xlsx", data)
         zip_buf.seek(0)
-        st.download_button(
-            label="Download All",
-            data=zip_buf,
-            file_name=f"Product Inclusion Lists_{project_code}.zip",
-            mime="application/zip"
-        )
+        st.download_button("Download All", zip_buf, file_name=f"Product Inclusion Lists_{project_code}.zip", mime="application/zip")
+
+if __name__ == "__main__":
+    main()
