@@ -24,7 +24,7 @@ LANGUAGE_MAP = {
     "es-LATAM": "/content/lifetech/latin-america/en-mx"
 }
 
-# --- Original URL Conversion Functions ---
+# --- Functions for Marketing (Original URL Conversion) ---
 
 def clean_url(url):
     if not isinstance(url, str):
@@ -51,18 +51,18 @@ def normalize_lang_column(colname):
     return match.group(1) if match else None
 
 
-def process_file_original(file):
-    df_preview = pd.read_excel(file, sheet_name=0, header=None)
+def process_file_marketing(file):
+    # Read Marketing sheet explicitly
+    xls = pd.ExcelFile(file)
+    sheet = 'Marketing' if 'Marketing' in xls.sheet_names else xls.sheet_names[0]
+    df_preview = pd.read_excel(file, sheet_name=sheet, header=None)
     header_row = detect_header_row(df_preview)
-    df = pd.read_excel(file, sheet_name=0, header=header_row)
+    df = pd.read_excel(file, sheet_name=sheet, header=header_row)
     df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-    language_columns = {
-        col: normalize_lang_column(col)
-        for col in df.columns
-        if normalize_lang_column(col) in LANGUAGE_MAP
-    }
-
+    language_columns = {col: normalize_lang_column(col)
+                        for col in df.columns
+                        if normalize_lang_column(col) in LANGUAGE_MAP}
     results = []
     for _, row in df.iterrows():
         url = next((cell for cell in row if isinstance(cell, str) and "/home/" in cell), None)
@@ -79,48 +79,24 @@ def process_file_original(file):
                 })
     return pd.DataFrame(results).sort_values(by=["Language"]) if results else pd.DataFrame()
 
-
-def style_and_save_excel(df):
-    buf = BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-        ws = writer.sheets['Sheet1']
-        ws.column_dimensions['A'].width = 60
-        ws.column_dimensions['B'].width = 20
-        ws.column_dimensions['C'].width = 80
-        for row in ws.iter_rows():
-            for cell in row:
-                cell.alignment = Alignment(wrap_text=True, vertical='top')
-        for cell in ws[1]:
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-        for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
-            for cell in row:
-                cell.alignment = Alignment(horizontal='center', vertical='top')
-    buf.seek(0)
-    return buf
-
-# --- Product Inclusion List Functions (A### pattern) ---
+# --- Functions for Product Inclusion List ---
 
 def process_file_product(file):
     xls = pd.ExcelFile(file)
-    # choose second sheet or named Product
     sheet = 'Product' if 'Product' in xls.sheet_names else (xls.sheet_names[1] if len(xls.sheet_names)>1 else None)
     if not sheet:
         return pd.DataFrame()
     df = pd.read_excel(file, sheet_name=sheet, header=2)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # language flag columns
-    langs = {
-        col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
-        for col in df.columns
-        if re.match(r'([a-z]{2}-[A-Z]{2})', col) and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
-    }
-
+    langs = {col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
+             for col in df.columns
+             if re.match(r'([a-z]{2}-[A-Z]{2})', col)
+                and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP}
     results = []
     for _, row in df.iterrows():
         pid = None
-        # universal scan for A### pattern
+        # scan all cells for A### pattern
         for cell in row:
             if isinstance(cell, str):
                 m = re.search(r'A\d{3,6}', cell)
@@ -135,6 +111,7 @@ def process_file_product(file):
                 results.append({'Product ID': pid, 'Language': lang})
     return pd.DataFrame(results)
 
+# --- Excel buffer helper ---
 
 def make_excel_buffer(df):
     buf = BytesIO()
@@ -155,17 +132,17 @@ def main():
     if not uploaded_file:
         return
 
-    # original URLs
-    df_orig = process_file_original(uploaded_file)
-    if df_orig.empty:
-        st.warning("No valid data found in the file.")
-    else:
-        st.success("✅ File processed successfully.")
-        st.dataframe(df_orig)
+    # Marketing section
+    df_marketing = process_file_marketing(uploaded_file)
+    if not df_marketing.empty:
+        st.subheader("Marketing URLs")
+        st.dataframe(df_marketing)
         filename = f"{project_code} - Converted URLs.xlsx"
-        st.download_button("📥 Download Excel", data=style_and_save_excel(df_orig), file_name=filename)
+        st.download_button("📥 Download Converted URLs", data=make_excel_buffer(df_marketing), file_name=filename)
+    else:
+        st.warning("No valid data found in the Marketing sheet.")
 
-    # product list
+    # Product section
     df_prod = process_file_product(uploaded_file)
     if not df_prod.empty:
         st.header("Product Inclusion List")
@@ -176,12 +153,12 @@ def main():
             st.table(df_lang)
             buf = make_excel_buffer(df_lang)
             st.download_button(
-                "Download Inclusion List",
-                buf,
+                "Download Inclusion List", buf,
                 file_name=f"Product Inclusion List_{project_code}_{lang}.xlsx",
                 key=f"dl_{lang}"
             )
             buffers[lang] = buf.getvalue()
+        # Download all as ZIP
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
             for lang,data in buffers.items():
