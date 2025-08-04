@@ -34,8 +34,8 @@ def detect_header_row(df):
 
 
 def normalize_lang_column(colname):
-    match = re.match(r'([a-z]{2}-[A-Z]{2})', str(colname))
-    return match.group(1) if match else None
+    m = re.match(r'([a-z]{2}-[A-Z]{2})', str(colname))
+    return m.group(1) if m else None
 
 
 def make_excel_buffer(df):
@@ -60,74 +60,62 @@ def clean_url(url):
 
 
 def process_file_marketing(file):
-    # Always first sheet
     df_preview = pd.read_excel(file, sheet_name=0, header=None)
     header_row = detect_header_row(df_preview)
     df = pd.read_excel(file, sheet_name=0, header=header_row)
     df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-    language_columns = {
-        col: normalize_lang_column(col)
-        for col in df.columns
-        if normalize_lang_column(col) in LANGUAGE_MAP
-    }
+    lang_cols = {col: normalize_lang_column(col) for col in df.columns if normalize_lang_column(col) in LANGUAGE_MAP}
     results = []
     for _, row in df.iterrows():
-        url = next((cell for cell in row if isinstance(cell, str) and "/home/" in cell), None)
+        url = next((c for c in row if isinstance(c, str) and "/home/" in c), None)
         cleaned = clean_url(url)
         if not cleaned:
             continue
-        for col, lang in language_columns.items():
+        for col, lang in lang_cols.items():
             val = row.get(col, "")
             if pd.notna(val) and str(val).strip().lower() in ["x","yes","✓","✔"]:
-                results.append({
-                    "Original URL": url,
-                    "Language": lang,
-                    "Localized Path": LANGUAGE_MAP[lang] + cleaned
-                })
+                results.append({"Original URL": url, "Language": lang, "Localized Path": LANGUAGE_MAP[lang] + cleaned})
     return pd.DataFrame(results).sort_values(by=["Language"]) if results else pd.DataFrame()
 
 # --- Product Section ---
 
+def extract_product_ids_from_df(df, lang_cols):
+    recs = []
+    for _, row in df.iterrows():
+        pid = None
+        for cell in row:
+            if isinstance(cell, str):
+                m = re.search(r'A\d{3,6}', cell)
+                if m:
+                    pid = m.group(0)
+                    break
+        if not pid:
+            continue
+        for col, lang in lang_cols.items():
+            val = row.get(col, '')
+            if pd.notna(val) and str(val).strip().lower() in ["x","yes","✓","✔"]:
+                recs.append({'Product ID': pid, 'Language': lang})
+    return recs
+
+
 def process_file_product(file):
     xls = pd.ExcelFile(file)
-    results = []
-    # Iterate all sheets (marketing sheet could contain product entries too)
+    all_results = []
     for idx, sheet in enumerate(xls.sheet_names):
-        # Determine header row
         if idx == 0:
             df_preview = pd.read_excel(file, sheet_name=sheet, header=None)
             header_row = detect_header_row(df_preview)
             df = pd.read_excel(file, sheet_name=sheet, header=header_row)
         else:
             df = pd.read_excel(file, sheet_name=sheet, header=2)
-        df.columns = [str(c).strip() for c in df.columns]
-
-        # Language flag columns
-        langs = {
-            col: normalize_lang_column(col)
-            for col in df.columns
-            if normalize_lang_column(col) in LANGUAGE_MAP
-        }
-        if not langs:
+        df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
+        lang_cols = {col: normalize_lang_column(col) for col in df.columns if normalize_lang_column(col) in LANGUAGE_MAP}
+        if not lang_cols:
             continue
-
-        for _, row in df.iterrows():
-            pid = None
-            # scan all cells for A### pattern
-            for cell in row:
-                if isinstance(cell, str):
-                    m = re.search(r'A\d{3,6}', cell)
-                    if m:
-                        pid = m.group(0)
-                        break
-            if not pid:
-                continue
-            for col, lang in langs.items():
-                val = row.get(col, '')
-                if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
-                    results.append({'Product ID': pid, 'Language': lang})
-    return pd.DataFrame(results) if results else pd.DataFrame()
+        recs = extract_product_ids_from_df(df, lang_cols)
+        all_results.extend(recs)
+    return pd.DataFrame(all_results) if all_results else pd.DataFrame()
 
 # --- Streamlit UI ---
 
@@ -146,12 +134,8 @@ def main():
     if not df_marketing.empty:
         st.subheader("Marketing URLs")
         st.dataframe(df_marketing)
-        filename = f"{project_code} - Converted URLs.xlsx"
-        st.download_button(
-            label="📥 Download Converted URLs",
-            data=make_excel_buffer(df_marketing),
-            file_name=filename
-        )
+        fname = f"{project_code} - Converted URLs.xlsx"
+        st.download_button("📥 Download Converted URLs", make_excel_buffer(df_marketing), fname)
     else:
         st.warning("No valid data found in the Marketing sheet.")
 
@@ -161,28 +145,18 @@ def main():
         st.header("Product Inclusion List")
         buffers = {}
         for lang in sorted(df_prod['Language'].unique()):
-            df_lang = df_prod[df_prod['Language'] == lang][['Product ID']]
+            df_lang = df_prod[df_prod['Language']==lang][['Product ID']]
             st.subheader(lang)
             st.table(df_lang)
             buf = make_excel_buffer(df_lang)
-            st.download_button(
-                label="Download Inclusion List",
-                data=buf,
-                file_name=f"Product Inclusion List_{project_code}_{lang}.xlsx",
-                key=f"dl_{lang}"
-            )
+            st.download_button("Download Inclusion List", buf, f"Product Inclusion List_{project_code}_{lang}.xlsx", key=f"dl_{lang}")
             buffers[lang] = buf.getvalue()
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
             for lang,data in buffers.items():
                 zf.writestr(f"Product Inclusion List_{project_code}_{lang}.xlsx", data)
         zip_buf.seek(0)
-        st.download_button(
-            label="Download All",
-            data=zip_buf,
-            file_name=f"Product Inclusion Lists_{project_code}.zip",
-            mime="application/zip"
-        )
+        st.download_button("Download All", zip_buf, f"Product Inclusion Lists_{project_code}.zip", mime="application/zip")
 
 if __name__ == "__main__":
     main()
