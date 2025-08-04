@@ -100,64 +100,49 @@ def style_and_save_excel(df):
 
 # --- Product Inclusion List Functions (A### pattern) ---
 
-def detect_first_url_product(row):
-    # Try first two columns for a URL
-    for idx in [0, 1]:
-        try:
-            cell = row.iloc[idx]
-            if isinstance(cell, str) and cell.lower().startswith('http'):
-                return cell
-        except:
-            pass
-    # Fallback: any HTTP cell
-    for cell in row:
-        if isinstance(cell, str) and cell.lower().startswith('http'):
-            return cell
-    return None
-
-
 def process_file_product(file):
-    try:
-        df = pd.read_excel(file, sheet_name=1, header=2)
-    except Exception:
+    # Detect the sheet name for product data
+    xls = pd.ExcelFile(file)
+    if 'Product' in xls.sheet_names:
+        sheet = 'Product'
+    elif len(xls.sheet_names) > 1:
+        sheet = xls.sheet_names[1]
+    else:
         return pd.DataFrame()
+    # Header row is the third row (index 2)
+    df = pd.read_excel(file, sheet_name=sheet, header=2)
     df.columns = [str(c).strip() for c in df.columns]
 
     # Identify language columns by header code
     langs = {
         col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
         for col in df.columns
-        if re.match(r'([a-z]{2}-[A-Z]{2})', col) and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
+        if re.match(r'([a-z]{2}-[A-Z]{2})', col)
+           and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
     }
 
     results = []
     for _, row in df.iterrows():
         pid = None
-        # First look for a standalone code cell (A123456)
+        # First, look for standalone code cell (A followed by 3-6 digits)
         for cell in row:
             if isinstance(cell, str) and re.fullmatch(r'A\d{3,6}', cell.strip()):
                 pid = cell.strip()
                 break
-        # If not found, try extracting from the product URL
+        # If not found, look for '/product/' URL
         if not pid:
-            url = detect_first_url_product(row)
-            if url:
-                parsed = urlparse(url)
-                path = parsed.path
-                if '/product/' in path:
-                    segment = path.split('/product/', 1)[1]
-                    pid = segment.split('/')[0].split('.')[0]
-                else:
-                    m = re.search(r'A\d{3,6}', url)
-                    if m:
-                        pid = m.group(0)
+            url_cell = next((cell for cell in row if isinstance(cell, str) and '/product/' in cell), None)
+            if url_cell:
+                m = re.search(r'A\d{3,6}', url_cell)
+                if m:
+                    pid = m.group(0)
         if not pid:
             continue
 
         # Check language markers
         for col, lang in langs.items():
             val = row.get(col, '')
-            if pd.notna(val) and str(val).strip().lower() in ['x', 'yes', '✓', '✔']:
+            if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
                 results.append({'Product ID': pid, 'Language': lang})
 
     return pd.DataFrame(results)
