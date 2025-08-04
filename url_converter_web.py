@@ -98,10 +98,10 @@ def process_all_sheets(file):
                 cleaned = None
                 try:
                     path = urlparse(murl).path
-n                    cleaned = "/home/" + re.sub(r'.*?/home/', '', path)
+                    cleaned = "/home/" + re.sub(r'.*?/home/', '', path)
                     cleaned = re.sub(r'\.html($|[\?#])', r'\1', cleaned)
-                except:
-                    pass
+                except Exception:
+                    cleaned = None
                 if not cleaned:
                     continue
                 for col, lang in lang_cols.items():
