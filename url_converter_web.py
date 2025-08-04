@@ -57,11 +57,9 @@ def make_excel_buffer(df):
 def make_product_excel_buffer(df_ids):
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        # write ERP in first row
         ws = writer.book.create_sheet('Sheet1')
         writer.sheets['Sheet1'] = ws
         ws['A1'] = 'ERP'
-        # write only IDs starting row 2 without header
         df_ids.to_excel(writer, index=False, header=False, startrow=1)
     buf.seek(0)
     return buf
@@ -127,17 +125,11 @@ def main():
     st.title("🌐 URL Converter Web App")
 
     default_code = get_default_project_code()
-# GTS ID input with last 4 digits bolded below
-# First, capture input
-_gts_input = st.text_input("", value=default_code)
-# Display styled ID
-if _gts_input:
-    _prefix = _gts_input[:-4]
-    _suffix = _gts_input[-4:]
-    st.markdown(f"**GTS ID:** {_prefix}**{_suffix}**")
-project_code = _gts_input.strip() if _gts_input.strip() else default_code
+    project_code = st.text_input("GTS ID", value=default_code).strip()
+    if not project_code:
+        project_code = default_code
 
-uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"]")("Upload an Excel File", type=["xlsx"])
+    uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
     if not uploaded_file:
         return
 
@@ -147,7 +139,6 @@ uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"]")("Upload
 
     # Marketing section
     if not df_marketing.empty:
-        # Use header size to match product size
         st.header("Marketing URLs")
         st.dataframe(df_marketing)
         marketing_buf = make_excel_buffer(df_marketing)
@@ -180,7 +171,7 @@ uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"]")("Upload
     else:
         st.warning("No product entries found.")
 
-        # Download all files
+    # Download all files
     if buffers_all:
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
@@ -188,7 +179,6 @@ uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"]")("Upload
                 zf.writestr(fname, data)
         zip_buf.seek(0)
         zip_name = f"{project_code} - All Downloads.zip"
-        # center the Download All button
         col1, col2, col3 = st.columns([1,1,1])
         with col2:
             st.download_button(
