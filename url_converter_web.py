@@ -171,7 +171,7 @@ def main():
     else:
         st.warning("No product entries found.")
 
-    # Download all files
+        # Download all files
     if buffers_all:
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
@@ -187,7 +187,10 @@ def main():
                 file_name=zip_name,
                 mime="application/zip"
             )
-                with col3:
+        with col3:
             if st.button("🔁 Reset"):
                 st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
                 st.stop()
+
+if __name__ == "__main__":
+    main()
