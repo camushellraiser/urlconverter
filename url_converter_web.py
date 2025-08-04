@@ -187,7 +187,7 @@ def main():
                 file_name=zip_name,
                 mime="application/zip"
             )
-                with col3:
+        with col3:
             if st.button("🔄 Reset"):
                 st.experimental_rerun()
 
