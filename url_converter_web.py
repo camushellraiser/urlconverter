@@ -26,7 +26,7 @@ LANGUAGE_MAP = {
 # --- Helper Functions ---
 
 def detect_header_row(df):
-    """Detect header row by finding 'page title' and any 'url in ' in the preview."""
+    """Detect header row by finding 'page title' and any 'url in ' in the preview sheet."""
     for i, row in df.iterrows():
         row_str = row.astype(str).str.lower()
         if any("page title" in cell for cell in row_str) and any("url in " in cell for cell in row_str):
@@ -47,53 +47,46 @@ def make_excel_buffer(df):
     buf.seek(0)
     return buf
 
-# --- Processing Functions ---
+# --- Processing All Sheets ---
 
 def process_all_sheets(file):
     """
-    Scan all sheets: classify each row as marketing or product.
-    Marketing: rows with a '/home/' URL and no product ID.
-    Product: rows with an 'A' + 3-6 digits anywhere.
+    Scan every sheet:
+    - Rows with an 'A' + 3–6 digits anywhere are product entries.
+    - Rows with '/home/' in their URL and no product code are marketing entries.
     """
     xls = pd.ExcelFile(file)
     marketing_records = []
     product_records = []
 
     for idx, sheet in enumerate(xls.sheet_names):
-        # Read sheet with appropriate header
+        # Load data with dynamic header for sheet 0, fixed header for others
         if idx == 0:
             preview = pd.read_excel(file, sheet_name=sheet, header=None)
             header_row = detect_header_row(preview)
             df = pd.read_excel(file, sheet_name=sheet, header=header_row)
         else:
             df = pd.read_excel(file, sheet_name=sheet, header=2)
-        # Clean column names
         df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-        # Identify language columns
+        # Identify which columns correspond to languages
         lang_cols = {col: normalize_lang_column(col) for col in df.columns if normalize_lang_column(col) in LANGUAGE_MAP}
         if not lang_cols:
             continue
 
         for _, row in df.iterrows():
             cells = list(row)
-            # Detect product ID
-            pid = None
-            for cell in cells:
-                if isinstance(cell, str):
-                    m = re.search(r'A\d{3,6}', cell)
-                    if m:
-                        pid = m.group(0)
-                        break
-            # Detect marketing URL
+            # Detect product ID pattern A123456
+            pid = next((m.group(0) for cell in cells if isinstance(cell, str) and (m := re.search(r'A\d{3,6}', cell))), None)
+            # Detect marketing URL path
             murl = next((c for c in cells if isinstance(c, str) and '/home/' in urlparse(c).path), None)
-            # Classify
+
+            # Classify product entries first
             if pid:
-                # product record
                 for col, lang in lang_cols.items():
-                    val = row.get(col, '')
-                    if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
+                    if pd.notna(row.get(col)) and str(row.get(col)).strip().lower() in ['x','yes','✓','✔']:
                         product_records.append({'Product ID': pid, 'Language': lang})
+            # Otherwise classify marketing entries
             elif murl:
                 cleaned = None
                 try:
@@ -102,17 +95,15 @@ def process_all_sheets(file):
                     cleaned = re.sub(r'\.html($|[\?#])', r'\1', cleaned)
                 except Exception:
                     cleaned = None
-                if not cleaned:
-                    continue
-                for col, lang in lang_cols.items():
-                    val = row.get(col, '')
-                    if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
-                        marketing_records.append({
-                            'Original URL': murl,
-                            'Language': lang,
-                            'Localized Path': LANGUAGE_MAP[lang] + cleaned
-                        })
-            # else ignore row
+                if cleaned:
+                    for col, lang in lang_cols.items():
+                        if pd.notna(row.get(col)) and str(row.get(col)).strip().lower() in ['x','yes','✓','✔']:
+                            marketing_records.append({
+                                'Original URL': murl,
+                                'Language': lang,
+                                'Localized Path': LANGUAGE_MAP[lang] + cleaned
+                            })
+            # else: ignore row
 
     df_marketing = pd.DataFrame(marketing_records)
     df_product = pd.DataFrame(product_records)
@@ -133,16 +124,16 @@ def main():
 
     df_marketing, df_product = process_all_sheets(uploaded_file)
 
-    # Marketing URLs section
+    # Marketing section
     if not df_marketing.empty:
         st.subheader("Marketing URLs")
         st.dataframe(df_marketing)
         fname = f"{project_code} - Converted URLs.xlsx"
-        st.download_button("📥 Download Converted URLs", make_excel_buffer(df_marketing), fname)
+        st.download_button("📥 Download Converted URLs", data=make_excel_buffer(df_marketing), file_name=fname)
     else:
-        st.info("No marketing URLs found.")
+        st.warning("No marketing URLs found.")
 
-    # Product Inclusion List
+    # Product Inclusion List section
     if not df_product.empty:
         st.header("Product Inclusion List")
         buffers = {}
@@ -163,9 +154,9 @@ def main():
             for lang, data in buffers.items():
                 zf.writestr(f"Product Inclusion List_{project_code}_{lang}.xlsx", data)
         zip_buf.seek(0)
-        st.download_button("Download All", zip_buf, f"Product Inclusion Lists_{project_code}.zip", mime="application/zip")
+        st.download_button("Download All", data=zip_buf, file_name=f"Product Inclusion Lists_{project_code}.zip", mime="application/zip")
     else:
-        st.info("No product entries found.")
+        st.warning("No product entries found.")
 
 if __name__ == "__main__":
     main()
