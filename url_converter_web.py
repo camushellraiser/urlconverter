@@ -8,8 +8,8 @@ from openpyxl.styles import Alignment
 from openpyxl import load_workbook
 import zipfile
 
-# Project code for naming
-PROJECT_CODE = "GTS2500XX"
+# Default project code for naming
+DEFAULT_PROJECT_CODE = "GTS2500XX"
 
 # Mapping from locale to region path
 LANGUAGE_MAP = {
@@ -24,7 +24,7 @@ LANGUAGE_MAP = {
     "es-LATAM": "/content/lifetech/latin-america/en-mx"
 }
 
-# --- Original URL Conversion Functions ---
+# --- Functions for Original URL Conversion ---
 
 def clean_url(url):
     if not isinstance(url, str):
@@ -58,9 +58,11 @@ def process_file_original(file):
     df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
     results = []
-    language_columns = {col: normalize_lang_column(col)
-                        for col in df.columns
-                        if normalize_lang_column(col) in LANGUAGE_MAP}
+    language_columns = {
+        col: normalize_lang_column(col)
+        for col in df.columns
+        if normalize_lang_column(col) in LANGUAGE_MAP
+    }
 
     for _, row in df.iterrows():
         url = next((cell for cell in row if isinstance(cell, str) and "/home/" in cell), None)
@@ -113,36 +115,50 @@ def detect_first_url_product(row):
     return None
 
 
-def extract_id_from_url(url):
-    parsed = urlparse(url)
-    m = re.search(r'/product/([^/?#]+)', parsed.path)
-    return m.group(1) if m else None
+def extract_product_id(url):
+    m = re.search(r'A\d{3,6}', url)
+    return m.group(0) if m else None
 
 
 def process_file_product(file):
     try:
         df = pd.read_excel(file, sheet_name=1, header=2)
-    except:
+    except Exception:
         return pd.DataFrame()
     df.columns = [str(c).strip() for c in df.columns]
-    langs = {col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
-             for col in df.columns
-             if re.match(r'([a-z]{2}-[A-Z]{2})', col) and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP}
+    langs = {
+        col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
+        for col in df.columns
+        if re.match(r'([a-z]{2}-[A-Z]{2})', col) and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
+    }
     results = []
     for _, row in df.iterrows():
         url = detect_first_url_product(row)
         if not url:
             continue
+        pid = extract_product_id(url)
+        if not pid:
+            continue
         for col, lang in langs.items():
             val = row.get(col, '')
             if pd.notna(val) and str(val).strip().lower() in ['x','yes','✓','✔']:
-                pid = extract_id_from_url(url)
-                if pid:
-                    results.append({'Product ID': pid, 'Language': lang})
+                results.append({'Product ID': pid, 'Language': lang})
     return pd.DataFrame(results)
+
+
+def make_excel_buffer(df):
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    buf.seek(0)
+    return buf
 
 # --- Streamlit UI ---
 st.title("🌐 URL Converter Web App")
+
+# GTS ID input for dynamic naming
+gts_id = st.text_input("GTS ID", value=DEFAULT_PROJECT_CODE)
+project_code = gts_id.strip() if gts_id.strip() else DEFAULT_PROJECT_CODE
 
 uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
 if uploaded_file:
@@ -153,13 +169,14 @@ if uploaded_file:
     else:
         st.success("✅ File processed successfully.")
         st.dataframe(df_orig)
+        filename = f"{project_code} - Converted URLs.xlsx"
         st.download_button(
             label="📥 Download Excel",
             data=style_and_save_excel(df_orig),
-            file_name="converted_urls.xlsx"
+            file_name=filename
         )
 
-    # Attempt Product Inclusion List on second sheet
+    # Product Inclusion List section
     df_prod = process_file_product(uploaded_file)
     if not df_prod.empty:
         st.header("Product Inclusion List")
@@ -172,22 +189,21 @@ if uploaded_file:
             st.download_button(
                 label="Download Inclusion List",
                 data=buf,
-                file_name=f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
+                file_name=f"Product Inclusion List_{project_code}_{lang}.xlsx",
                 key=f"dl_{lang}"
             )
             buffers[lang] = buf.getvalue()
-        # Download all as ZIP
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
             for lang, data in buffers.items():
                 zf.writestr(
-                    f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
+                    f"Product Inclusion List_{project_code}_{lang}.xlsx",
                     data
                 )
         zip_buf.seek(0)
         st.download_button(
             label="Download All",
             data=zip_buf,
-            file_name=f"Product Inclusion Lists_{PROJECT_CODE}.zip",
+            file_name=f"Product Inclusion Lists_{project_code}.zip",
             mime="application/zip"
         )
