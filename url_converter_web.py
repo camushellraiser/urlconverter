@@ -119,9 +119,9 @@ def extract_id_from_url(url):
     return m.group(1) if m else None
 
 
-def process_file_product(file, sheet_name='Product'):
+def process_file_product(file):
     try:
-        df = pd.read_excel(file, sheet_name=sheet_name, header=2)
+        df = pd.read_excel(file, sheet_name=1, header=2)
     except:
         return pd.DataFrame()
     df.columns = [str(c).strip() for c in df.columns]
@@ -141,14 +141,6 @@ def process_file_product(file, sheet_name='Product'):
                     results.append({'Product ID': pid, 'Language': lang})
     return pd.DataFrame(results)
 
-
-def make_excel_buffer(df):
-    buf = BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    buf.seek(0)
-    return buf
-
 # --- Streamlit UI ---
 st.title("🌐 URL Converter Web App")
 
@@ -167,48 +159,35 @@ if uploaded_file:
             file_name="converted_urls.xlsx"
         )
 
-    # Check for Product sheet presence
-    try:
-        sheets = pd.ExcelFile(uploaded_file).sheet_names
-        if 'Product' in sheets:
-            prod_sheet = 'Product'
-        elif len(sheets) > 1:
-            prod_sheet = sheets[1]
-        else:
-            prod_sheet = None
-    except:
-        prod_sheet = None
-
-    # Conditionally render Product Inclusion List only if data is found
-    if prod_sheet:
-        df_prod = process_file_product(uploaded_file, sheet_name=prod_sheet)
-        if not df_prod.empty:
-            st.header("Product Inclusion List")
-            buffers = {}
-            for lang in sorted(df_prod['Language'].unique()):
-                df_lang = df_prod[df_prod['Language'] == lang][['Product ID']]
-                st.subheader(lang)
-                st.table(df_lang)
-                buf = make_excel_buffer(df_lang)
-                st.download_button(
-                    label="Download Inclusion List",
-                    data=buf,
-                    file_name=f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
-                    key=f"dl_{lang}"
-                )
-                buffers[lang] = buf.getvalue()
-            # Download all as ZIP
-            zip_buf = BytesIO()
-            with zipfile.ZipFile(zip_buf, 'w') as zf:
-                for lang, data in buffers.items():
-                    zf.writestr(
-                        f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
-                        data
-                    )
-            zip_buf.seek(0)
+    # Attempt Product Inclusion List on second sheet
+    df_prod = process_file_product(uploaded_file)
+    if not df_prod.empty:
+        st.header("Product Inclusion List")
+        buffers = {}
+        for lang in sorted(df_prod['Language'].unique()):
+            df_lang = df_prod[df_prod['Language'] == lang][['Product ID']]
+            st.subheader(lang)
+            st.table(df_lang)
+            buf = make_excel_buffer(df_lang)
             st.download_button(
-                label="Download All",
-                data=zip_buf,
-                file_name=f"Product Inclusion Lists_{PROJECT_CODE}.zip",
-                mime="application/zip"
+                label="Download Inclusion List",
+                data=buf,
+                file_name=f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
+                key=f"dl_{lang}"
             )
+            buffers[lang] = buf.getvalue()
+        # Download all as ZIP
+        zip_buf = BytesIO()
+        with zipfile.ZipFile(zip_buf, 'w') as zf:
+            for lang, data in buffers.items():
+                zf.writestr(
+                    f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
+                    data
+                )
+        zip_buf.seek(0)
+        st.download_button(
+            label="Download All",
+            data=zip_buf,
+            file_name=f"Product Inclusion Lists_{PROJECT_CODE}.zip",
+            mime="application/zip"
+        )
