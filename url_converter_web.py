@@ -52,17 +52,17 @@ def normalize_lang_column(colname):
 
 
 def process_file_marketing(file):
-    # Read Marketing sheet explicitly
-    xls = pd.ExcelFile(file)
-    sheet = 'Marketing' if 'Marketing' in xls.sheet_names else xls.sheet_names[0]
-    df_preview = pd.read_excel(file, sheet_name=sheet, header=None)
+    # Always read the first sheet (index 0) for marketing
+    df_preview = pd.read_excel(file, sheet_name=0, header=None)
     header_row = detect_header_row(df_preview)
-    df = pd.read_excel(file, sheet_name=sheet, header=header_row)
+    df = pd.read_excel(file, sheet_name=0, header=header_row)
     df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-    language_columns = {col: normalize_lang_column(col)
-                        for col in df.columns
-                        if normalize_lang_column(col) in LANGUAGE_MAP}
+    language_columns = {
+        col: normalize_lang_column(col)
+        for col in df.columns
+        if normalize_lang_column(col) in LANGUAGE_MAP
+    }
     results = []
     for _, row in df.iterrows():
         url = next((cell for cell in row if isinstance(cell, str) and "/home/" in cell), None)
@@ -83,16 +83,18 @@ def process_file_marketing(file):
 
 def process_file_product(file):
     xls = pd.ExcelFile(file)
-    sheet = 'Product' if 'Product' in xls.sheet_names else (xls.sheet_names[1] if len(xls.sheet_names)>1 else None)
+    sheet = 'Product' if 'Product' in xls.sheet_names else (xls.sheet_names[1] if len(xls.sheet_names) > 1 else None)
     if not sheet:
         return pd.DataFrame()
     df = pd.read_excel(file, sheet_name=sheet, header=2)
     df.columns = [str(c).strip() for c in df.columns]
 
-    langs = {col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
-             for col in df.columns
-             if re.match(r'([a-z]{2}-[A-Z]{2})', col)
-                and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP}
+    langs = {
+        col: re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1)
+        for col in df.columns
+        if re.match(r'([a-z]{2}-[A-Z]{2})', col)
+           and re.match(r'([a-z]{2}-[A-Z]{2})', col).group(1) in LANGUAGE_MAP
+    }
     results = []
     for _, row in df.iterrows():
         pid = None
@@ -138,7 +140,11 @@ def main():
         st.subheader("Marketing URLs")
         st.dataframe(df_marketing)
         filename = f"{project_code} - Converted URLs.xlsx"
-        st.download_button("📥 Download Converted URLs", data=make_excel_buffer(df_marketing), file_name=filename)
+        st.download_button(
+            label="📥 Download Converted URLs",
+            data=make_excel_buffer(df_marketing),
+            file_name=filename
+        )
     else:
         st.warning("No valid data found in the Marketing sheet.")
 
@@ -153,7 +159,8 @@ def main():
             st.table(df_lang)
             buf = make_excel_buffer(df_lang)
             st.download_button(
-                "Download Inclusion List", buf,
+                label="Download Inclusion List",
+                data=buf,
                 file_name=f"Product Inclusion List_{project_code}_{lang}.xlsx",
                 key=f"dl_{lang}"
             )
@@ -162,9 +169,17 @@ def main():
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
             for lang,data in buffers.items():
-                zf.writestr(f"Product Inclusion List_{project_code}_{lang}.xlsx", data)
+                zf.writestr(
+                    f"Product Inclusion List_{project_code}_{lang}.xlsx",
+                    data
+                )
         zip_buf.seek(0)
-        st.download_button("Download All", zip_buf, file_name=f"Product Inclusion Lists_{project_code}.zip", mime="application/zip")
+        st.download_button(
+            label="Download All",
+            data=zip_buf,
+            file_name=f"Product Inclusion Lists_{project_code}.zip",
+            mime="application/zip"
+        )
 
 if __name__ == "__main__":
     main()
