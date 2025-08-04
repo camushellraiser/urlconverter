@@ -58,9 +58,11 @@ def make_product_excel_buffer(df_ids):
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         # write ERP in first row
-        df_ids.to_excel(writer, index=False, startrow=1)
-        ws = writer.sheets['Sheet1']
+        ws = writer.book.create_sheet('Sheet1')
+        writer.sheets['Sheet1'] = ws
         ws['A1'] = 'ERP'
+        # write only IDs starting row 2 without header
+        df_ids.to_excel(writer, index=False, header=False, startrow=1)
     buf.seek(0)
     return buf
 
@@ -83,7 +85,6 @@ def process_all_sheets(file):
 
         for _, row in df.iterrows():
             cells = list(row)
-            # detect product ID
             pid = None
             for cell in cells:
                 if isinstance(cell, str):
@@ -95,7 +96,6 @@ def process_all_sheets(file):
                         seg = cell.split('/product/',1)[1]
                         pid = re.split(r'[/\?#]', seg)[0]
                         break
-            # detect marketing URL
             murl = next((c for c in cells if isinstance(c, str) and '/home/' in urlparse(c).path), None)
 
             if pid:
