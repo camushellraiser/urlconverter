@@ -187,10 +187,7 @@ def main():
                 file_name=zip_name,
                 mime="application/zip"
             )
-        with col3:
-            if st.button("🔄 Reset"):
-                st.experimental_rerun()
-
-# Entry point
-if __name__ == '__main__':
-    main()
+                with col3:
+            if st.button("🔁 Reset"):
+                st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+                st.stop()
