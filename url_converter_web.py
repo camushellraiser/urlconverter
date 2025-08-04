@@ -191,3 +191,6 @@ def main():
             if st.button("🔄 Reset"):
                 st.experimental_rerun()
 
+# Entry point
+if __name__ == '__main__':
+    main()
