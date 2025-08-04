@@ -3,13 +3,13 @@ import pandas as pd
 from urllib.parse import urlparse
 import re
 from io import BytesIO
-from openpyxl.styles import Alignment
-from openpyxl import load_workbook
+from openpyxl import Workbook
 import zipfile
 
 # Project code for naming
 PROJECT_CODE = "GTS2500XX"
 
+# Mapping from locale to region path
 LANGUAGE_MAP = {
     "de-DE": "/content/lifetech/europe/en-de",
     "es-ES": "/content/lifetech/europe/en-es",
@@ -22,98 +22,95 @@ LANGUAGE_MAP = {
     "es-LATAM": "/content/lifetech/latin-america/en-mx"
 }
 
-def clean_url(url):
-    if not isinstance(url, str):
-        return None
-    parsed = urlparse(url)
-    path = parsed.path
-    if "/home/" not in path and "/product/" not in path:
-        return None
-    # handle both home and product paths
-    return path
-
 
 def detect_first_url(row):
+    # Try first two columns first (0-indexed)
+    for idx in [0, 1]:
+        try:
+            cell = row.iloc[idx]
+        except Exception:
+            continue
+        if isinstance(cell, str) and cell.lower().startswith("http"):
+            return cell
+    # Fallback: any cell
     for cell in row:
-        if isinstance(cell, str) and ("/home/" in cell or "/product/" in cell):
+        if isinstance(cell, str) and cell.lower().startswith("http"):
             return cell
     return None
 
 
-def detect_header_row(df):
-    for i, row in df.iterrows():
-        row_str = row.astype(str).str.lower()
-        if any("page title" in cell for cell in row_str) and any("url in aem" in cell for cell in row_str):
-            return i
-    return 0
-
-
-def normalize_lang_column(colname):
-    match = re.match(r'([a-z]{2}-[A-Z]{2})', str(colname))
-    return match.group(1) if match else None
-
-
-def process_file(file):
-    df_preview = pd.read_excel(file, sheet_name=0, header=None)
-    header_row = detect_header_row(df_preview)
-    df = pd.read_excel(file, sheet_name=0, header=header_row)
-    df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
-
-    language_columns = {col: normalize_lang_column(col) for col in df.columns if normalize_lang_column(col) in LANGUAGE_MAP}
-    results = []
-    for _, row in df.iterrows():
-        original_url = detect_first_url(row)
-        if not original_url:
-            continue
-        cleaned_path = clean_url(original_url)
-        for col, lang in language_columns.items():
-            val = row.get(col, "")
-            if pd.notna(val) and str(val).strip().lower() in ["x", "yes", "✓", "✔"]:
-                base = LANGUAGE_MAP.get(lang)
-                if base:
-                    full = base + cleaned_path
-                    results.append({"Original URL": full, "Language": lang})
-    return pd.DataFrame(results)
-
-
 def extract_id_from_url(url):
-    # find segment after 'product/'
-    m = re.search(r'/product/([^/]+)', url)
+    # Extract the segment after '/product/' in the path
+    parsed = urlparse(url)
+    m = re.search(r'/product/([^/?#]+)', parsed.path)
     return m.group(1) if m else None
 
 
-def make_excel(df_ids):
+def process_file(file):
+    # Read the 'Product' sheet with header on the third row (index 2)
+    try:
+        df = pd.read_excel(file, sheet_name="Product", header=2)
+    except Exception:
+        return pd.DataFrame()
+
+    # Clean column names
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Identify language columns based on code in header
+    language_columns = {}
+    for col in df.columns:
+        match = re.match(r'([a-z]{2}-[A-Z]{2})', col)
+        if match:
+            code = match.group(1)
+            if code in LANGUAGE_MAP:
+                language_columns[col] = code
+
+    results = []
+    for _, row in df.iterrows():
+        url = detect_first_url(row)
+        if not url:
+            continue
+        for col, lang in language_columns.items():
+            val = row.get(col, "")
+            if pd.notna(val) and str(val).strip().lower() in ["x", "yes", "✓", "✔"]:
+                pid = extract_id_from_url(url)
+                if pid:
+                    results.append({"Product ID": pid, "Language": lang})
+
+    return pd.DataFrame(results)
+
+
+def make_excel_buffer(df_ids):
     buf = BytesIO()
+    # Use Pandas ExcelWriter for simplicity
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         df_ids.to_excel(writer, index=False)
     buf.seek(0)
     return buf
 
 
-# Streamlit UI
+# --- Streamlit UI ---
 st.title("🌐 URL Converter Web App")
 
 uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
 if uploaded_file:
     df_result = process_file(uploaded_file)
     if df_result.empty:
-        st.warning("No valid data found in the file.")
+        st.warning("No valid data found on the Product sheet.")
     else:
         st.success("✅ File processed successfully.")
         st.dataframe(df_result)
 
-        # Production Inclusion List section
-        st.header("Production Inclusion List")
-        downloads = {}
-        for lang in df_result['Language'].unique():
-            df_lang = df_result[df_result['Language'] == lang]
-            ids = df_lang['Original URL'].apply(extract_id_from_url)
-            df_ids = pd.DataFrame({"Product ID": ids})
-
+        # Main section for product list
+        st.header("Product Inclusion List")
+        buffers = {}
+        # Separate tables and downloads per language
+        for lang in sorted(df_result['Language'].unique()):
+            df_lang = df_result[df_result['Language'] == lang][['Product ID']]
             st.subheader(lang)
-            st.table(df_ids)
+            st.table(df_lang)
 
-            excel_buf = make_excel(df_ids)
+            excel_buf = make_excel_buffer(df_lang)
             btn_key = f"dl_{lang}"
             st.download_button(
                 label="Download Inclusion List",
@@ -121,12 +118,12 @@ if uploaded_file:
                 file_name=f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
                 key=btn_key
             )
-            downloads[lang] = excel_buf.getvalue()
+            buffers[lang] = excel_buf.getvalue()
 
-        # Download All as ZIP
+        # Download all as ZIP
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
-            for lang, data in downloads.items():
+            for lang, data in buffers.items():
                 zf.writestr(
                     f"Product Inclusion List_{PROJECT_CODE}_{lang}.xlsx",
                     data
