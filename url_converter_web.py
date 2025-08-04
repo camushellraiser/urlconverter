@@ -140,7 +140,8 @@ def main():
 
     # Marketing section
     if not df_marketing.empty:
-        st.subheader("Marketing URLs")
+        # Use header size to match product size
+        st.header("Marketing URLs")
         st.dataframe(df_marketing)
         marketing_buf = make_excel_buffer(df_marketing)
         fname_mark = f"{project_code} - Converted URLs.xlsx"
@@ -172,7 +173,7 @@ def main():
     else:
         st.warning("No product entries found.")
 
-    # Download all files
+        # Download all files
     if buffers_all:
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
@@ -180,12 +181,16 @@ def main():
                 zf.writestr(fname, data)
         zip_buf.seek(0)
         zip_name = f"{project_code} - All Downloads.zip"
-        st.download_button(
-            label="📥 Download All",
-            data=zip_buf,
-            file_name=zip_name,
-            mime="application/zip"
-        )
+        # center the Download All button
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            st.download_button(
+                label="📥 Download All",
+                data=zip_buf,
+                file_name=zip_name,
+                mime="application/zip"
+            )
 
 if __name__ == "__main__":
+    main() "__main__":
     main()
