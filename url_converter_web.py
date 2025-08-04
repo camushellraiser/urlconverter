@@ -127,10 +127,17 @@ def main():
     st.title("🌐 URL Converter Web App")
 
     default_code = get_default_project_code()
-    gts_id = st.text_input("GTS ID", value=default_code)
-    project_code = gts_id.strip() if gts_id.strip() else default_code
+# GTS ID input with last 4 digits bolded below
+# First, capture input
+_gts_input = st.text_input("", value=default_code)
+# Display styled ID
+if _gts_input:
+    _prefix = _gts_input[:-4]
+    _suffix = _gts_input[-4:]
+    st.markdown(f"**GTS ID:** {_prefix}**{_suffix}**")
+project_code = _gts_input.strip() if _gts_input.strip() else default_code
 
-    uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"]")("Upload an Excel File", type=["xlsx"])
     if not uploaded_file:
         return
 
@@ -189,6 +196,11 @@ def main():
                 data=zip_buf,
                 file_name=zip_name,
                 mime="application/zip"
+            )
+        with col3:
+            st.button(
+                label="🔄 Reset",
+                on_click=st.experimental_rerun
             )
 
 if __name__ == "__main__":
