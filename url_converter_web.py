@@ -47,9 +47,9 @@ def extract_id_from_url(url):
 
 
 def process_file(file):
-    # Read the 'Product' sheet with header on the third row (index 2)
+    # Read the 'Product' sheet with header on the fourth row (index 3)
     try:
-        df = pd.read_excel(file, sheet_name="Product", header=2)
+        df = pd.read_excel(file, sheet_name="Product", header=3)
     except Exception:
         return pd.DataFrame()
 
@@ -90,7 +90,8 @@ def make_excel_buffer(df_ids):
 
 
 # --- Streamlit UI ---
-st.title("🌐 URL Converter Web App")
+# Main title updated
+st.title("Product Inclusion List")
 
 uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
 if uploaded_file:
