@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 import re
 from io import BytesIO
 from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter
 import zipfile
 
 # Default project code for naming
@@ -57,10 +58,25 @@ def make_excel_buffer(df):
 def make_product_excel_buffer(df_ids):
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        ws = writer.book.create_sheet('Sheet1')
-        writer.sheets['Sheet1'] = ws
-        ws['A1'] = 'ERP'
-        df_ids.to_excel(writer, index=False, header=False, startrow=1)
+        df_ids = df_ids.copy()
+        df_ids.columns = ["ERP"]  # force correct header name
+
+        # Write data starting from row 2 (row 1 reserved for header)
+        df_ids.to_excel(writer, index=False, startrow=1, header=False, sheet_name="Sheet1")
+
+        ws = writer.sheets["Sheet1"]
+        # Write header manually
+        ws["A1"] = "ERP"
+
+        # Force column A (ERP) as text format
+        for cell in ws["A"]:
+            cell.number_format = "@"
+            cell.alignment = Alignment(horizontal="left")
+
+        # Adjust width for readability
+        col_letter = get_column_letter(1)
+        ws.column_dimensions[col_letter].width = 20
+
     buf.seek(0)
     return buf
 
@@ -86,7 +102,7 @@ def process_all_sheets(file):
             pid = None
             for cell in cells:
                 if isinstance(cell, str):
-                    m = re.search(r'A\d{3,6}', cell)
+                    m = re.search(r'A\d{3,12}', cell)  # extended to capture longer IDs
                     if m:
                         pid = m.group(0)
                         break
@@ -171,7 +187,7 @@ def main():
     else:
         st.warning("No product entries found.")
 
-        # Download all files
+    # Download all files
     if buffers_all:
         zip_buf = BytesIO()
         with zipfile.ZipFile(zip_buf, 'w') as zf:
