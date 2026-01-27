@@ -9,7 +9,7 @@ import zipfile
 
 # Default project code for naming
 def get_default_project_code():
-    return "GTS2500XX"
+    return "GTS2600XX"
 
 # Mapping from locale to region path
 LANGUAGE_MAP = {
