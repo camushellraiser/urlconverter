@@ -29,7 +29,7 @@ LANGUAGE_MAP = {
 def detect_header_marketing(df):
     for i, row in df.iterrows():
         row_str = row.astype(str).str.lower()
-        if any("page title" in cell for cell in row_str) and any("url in " in cell for cell in row_str):
+        if any("page title" in str(cell) for cell in row_str) and any("url" in str(cell) for cell in row_str):
             return i
     return 0
 
