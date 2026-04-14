@@ -37,7 +37,7 @@ def detect_header_marketing(df):
 def detect_header_language(df):
     for i, row in df.iterrows():
         cells = row.astype(str)
-        if any(re.match(r'[a-z]{2}-[A-Z]{2}', c) for c in cells):
+        if any(re.match(r'[a-z]{2}-[A-Z]{2}', str(c)) for c in cells):
             return i
     return 0
 
